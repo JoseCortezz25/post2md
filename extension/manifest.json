@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "post2md — X Markdown export",
+  "version": "0.1.0",
+  "description": "Download loaded X posts, full articles and reliably connected loaded threads as Markdown. Local-only.",
+  "content_scripts": [{
+    "matches": ["https://x.com/*", "https://www.x.com/*", "https://mobile.x.com/*", "https://twitter.com/*", "https://www.twitter.com/*", "https://mobile.twitter.com/*"],
+    "js": ["markdown.js", "extract.js", "content.js"],
+    "css": ["content.css"],
+    "run_at": "document_idle"
+  }]
+}
