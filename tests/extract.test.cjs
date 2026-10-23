@@ -118,6 +118,89 @@ test('thread does not infer relationships from author proximity or cross recomme
   assert.deepEqual(extractThread(dom(tweet('100')), null, 'https://x.com/Alice/status/100'), []);
 });
 
+test('S5 native timestamp anchors retain owning post identity and reject quoted identities', () => {
+  const native = tweet('123').replace('<a href=', '<a role="link" href=');
+  const document = dom(native);
+  const before = document.body.innerHTML;
+  const record = extractPost(document.querySelector('article'), 'https://x.com/Alice/status/123');
+  assert.ok(record);
+  assert.equal(record.id, '123');
+  assert.equal(record.author, 'Alice');
+  assert.equal(record.title, 'Post 123😀');
+  assert.equal(document.body.innerHTML, before);
+  for (const attrs of ['role="link"', 'data-testid="quoteTweet"', 'data-testid="quotedTweet"', 'data-testid="card.wrapper"']) {
+    const missing = dom(`<article data-testid="tweet"><div ${attrs}><a role="link" href="/Alice/status/999"><time>Quoted</time></a><div data-testid="tweetText">Quoted text</div></div></article>`);
+    assert.equal(extractPost(missing.querySelector('article'), 'https://x.com/Alice/status/123'), null, attrs);
+  }
+});
+
+test('S5 Article metadata and content belong to the owner, not same-author embedded previews', () => {
+  const document = dom(fs.readFileSync('tests/fixtures/opened-article.html', 'utf8'));
+  const owner = document.querySelector('[data-testid="tweet"]');
+  const embedded = `<article data-testid="tweet"><a role="link" href="/0xMovez/status/999"><time datetime="2020-01-01T00:00:00Z">Other date</time></a><div data-testid="twitterArticleReadView"><h1>Other title</h1><div data-testid="articleBody">Other preview</div></div><div data-testid="tweetText">Same-author embedded text</div></article>`;
+  owner.insertAdjacentHTML('afterbegin', embedded);
+  const view = owner.querySelectorAll('[data-testid="twitterArticleReadView"]')[1];
+  view.insertAdjacentHTML('afterbegin', `<div data-testid="card.wrapper"><h1>Card title</h1><div data-testid="articleBody">Card preview</div></div>`);
+  view.querySelector('[data-testid="twitterArticleRichTextView"]').insertAdjacentHTML('beforeend', embedded);
+  const before = document.body.innerHTML;
+  const record = extractArticle(owner, 'https://x.com/0xMovez/status/2109604520770548146');
+  assert.ok(record);
+  assert.deepEqual({ id: record.id, author: record.author, url: record.url, publishedAt: record.publishedAt, title: record.title }, {
+    id: '2109604520770548146', author: '0xMovez', url: 'https://x.com/0xMovez/status/2109604520770548146', publishedAt: '2026-10-12T11:18:06.000Z',
+    title: 'How to Reverse Engineer Anything with Opus 5.5 ( Full-Course)'
+  });
+  const markdown = serialize(record);
+  assert.equal(markdown.match(/HUbR7_OWkAAMWFZ/g)?.length, 1);
+  assert.ok(markdown.indexOf('HUbR7_OWkAAMWFZ') < markdown.indexOf('Most people'));
+  assert.equal(markdown.split('Same\\-author embedded text').length - 1, 1);
+  assert.equal(markdown.match(/What’s happening/g)?.length, 1);
+  assert.match(markdown, /https:\/\/github.com\/morluto\/rea/);
+  assert.doesNotMatch(markdown, /profile_images|Copy to clipboard|Download Markdown|Like/);
+  assert.equal(document.body.innerHTML, before);
+  // Without the owner's timestamp, neither embedded status may supply identity.
+  owner.querySelector('a[href="/0xMovez/status/2109604520770548146"]').remove();
+  assert.equal(extractArticle(owner, 'https://x.com/0xMovez/status/2109604520770548146'), null);
+});
+
+test('S5 Article cannot use embedded-only titles, bodies or publication times', () => {
+  const document = dom(`<section data-testid="twitterArticleReadView">${tweet('999', 'Alice', '<h1>Embedded title</h1><div data-testid="articleBody">Embedded preview</div>')}<div data-testid="articleBody"><p>Own body</p></div></section>`);
+  const record = extractArticle(document, 'https://x.com/i/article/456');
+  assert.equal(record.title, 'X Article');
+  assert.equal(record.publishedAt, null);
+  assert.equal(record.content.textContent, 'Own body');
+  document.querySelector('p').parentElement.remove();
+  assert.equal(extractArticle(document, 'https://x.com/i/article/456'), null);
+});
+
+test('S5 opened Article extraction accepts the document or owning tweet as root', () => {
+  const document = dom(tweet('123', 'Alice', '<div data-testid="twitterArticleReadView"><h1>Own title</h1><div data-testid="articleBody"><p>Own body</p></div></div>'));
+  const owner = extractArticle(document.querySelector('article'), 'https://x.com/Alice/status/123');
+  const fromDocument = extractArticle(document, 'https://x.com/Alice/status/123');
+  assert.ok(fromDocument);
+  assert.equal(fromDocument.url, owner.url);
+  assert.equal(fromDocument.title, owner.title);
+  assert.equal(fromDocument.content.outerHTML, owner.content.outerHTML);
+});
+
+test('S5 captured DraftJS emphasis survives on the cloned article body only', () => {
+  const document = dom(fs.readFileSync('tests/fixtures/opened-article.html', 'utf8'));
+  const before = document.body.innerHTML;
+  const record = extractArticle(document.querySelector('article'), 'https://x.com/0xMovez/status/2109604520770548146');
+  const markdown = serialize(record);
+  assert.match(markdown, /\*\*Medium\*\*/);
+  assert.ok(markdown.includes('*01\\. The engine*'), markdown);
+  assert.equal(document.body.innerHTML, before);
+});
+
+test('S5 native anchors preserve explicitly connected loaded-thread extraction', () => {
+  const html = `<main data-testid="primaryColumn">${tweet('100')}${tweet('101', 'Alice', '', 'data-in-reply-to-status-id="100"')}${tweet('999')}</main>`;
+  const document = dom(html.replaceAll('<a href=', '<a role="link" href='));
+  const before = document.body.innerHTML;
+  const records = extractThread(document, document.querySelector('article'), 'https://x.com/Alice/status/100');
+  assert.deepEqual(records.map(record => record.id), ['100', '101']);
+  assert.equal(document.body.innerHTML, before);
+});
+
 test('classic browser script extends the existing namespace without CommonJS', () => {
   const context = { Post2md: { existing: true }, URL };
   vm.runInNewContext(fs.readFileSync(require.resolve('../extension/extract.js'), 'utf8'), context);

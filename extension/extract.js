@@ -2,7 +2,8 @@
 (function (scope) {
   'use strict';
   const TWEET = '[data-testid="tweet"]';
-  const QUOTE = '[data-testid="quoteTweet"], [data-testid="quotedTweet"], [role="link"]';
+  // Native anchors (timestamps and linked media) are not quote containers.
+  const QUOTE = '[data-testid="quoteTweet"], [data-testid="quotedTweet"], [role="link"]:not(a)';
   const CARD = '[data-testid="card.wrapper"]';
   const UI = '[role="group"], button, [data-testid="Tweet-User-Avatar"], [data-testid="UserAvatar-Container"], [data-testid="socialContext"], [data-testid="placementTracking"], [data-post2md]';
   const text = (element) => {
@@ -81,35 +82,55 @@
   function extractArticle(root, pageUrl) {
     if (!root?.querySelector) return null;
     const pageArticle = identity(pageUrl, pageUrl, 'article');
-    const read = root.matches?.(READ) ? root : root.querySelector(READ);
+    const owner = root.closest?.(TWEET) || null;
+    const excluded = `${UI}, ${QUOTE}, ${CARD}`;
+    const reads = root.matches?.(READ) ? [root] : [...root.querySelectorAll(READ)];
+    const read = reads.find((node) => {
+      const tweet = node.closest(TWEET);
+      if (!owner && tweet?.parentElement?.closest(TWEET)) return false;
+      return own(node, owner || tweet) && !node.closest(excluded);
+    });
     // A rich body on an article route is sufficient; a status requires an actual read view.
     const container = read || (pageArticle ? root : null);
     if (!container || container.closest?.(`${QUOTE}, ${CARD}, [data-testid="placementTracking"]`)) return null;
-    const tweet = container.closest?.(TWEET);
+    const tweet = container.closest?.(TWEET) || null;
+    const inContext = (node) => own(node, tweet) && !node.closest(excluded);
     const meta = pageArticle || (tweet && postIdentity(tweet, pageUrl));
     if (!meta) return null;
-    const bodies = [...container.querySelectorAll(BODY)].filter((node) => !node.closest(`${CARD}, ${QUOTE}`));
+    const bodies = [...container.querySelectorAll(BODY)].filter(inContext);
     if (container.matches?.(BODY)) bodies.unshift(container);
     const topBodies = bodies.filter((node) => !bodies.some((other) => other !== node && other.contains(node)));
     if (!topBodies.some((node) => text(node) || node.querySelector('img, video'))) return null;
     const content = (container.ownerDocument || container).createElement('div');
     const outsideBody = (node) => !topBodies.some((body) => body.contains(node));
-    const titleNode = [...container.querySelectorAll('h1, h2, [role="heading"], [data-testid="twitterArticleTitle"], [data-testid="articleTitle"]')].find(outsideBody)
-      || [...container.children].find((node) => node.matches('[dir="auto"]') && outsideBody(node));
+    const titleNode = [...container.querySelectorAll('h1, h2, [role="heading"], [data-testid="twitterArticleTitle"], [data-testid="twitter-article-title"], [data-testid="articleTitle"]')].find((node) => outsideBody(node) && inContext(node))
+      || [...container.children].find((node) => node.matches('[dir="auto"]') && outsideBody(node) && inContext(node));
     const picked = [];
     const candidates = [...container.querySelectorAll(`${BODY}, img, video, audio, iframe`)];
     if (topBodies.includes(container)) candidates.unshift(container);
     for (const node of candidates) {
-      if (node.closest(`${UI}, ${CARD}, ${QUOTE}`) || titleNode?.contains(node)) continue;
+      if (!inContext(node) || titleNode?.contains(node)) continue;
       if (!topBodies.includes(node) && (!outsideBody(node) || !node.matches('img, video, audio, iframe'))) continue;
       if (picked.some(parent => parent.contains(node))) continue;
       picked.push(node);
       const clone = cleanClone(node, pageUrl);
+      // Captured DraftJS emphasis is inline CSS; normalize only the detached body.
+      if (topBodies.includes(node)) {
+        for (const span of clone.querySelectorAll('span[style]')) {
+          if (span.closest('pre, code')) continue;
+          for (const [property, value, tag] of [['font-weight', 'bold', 'strong'], ['font-style', 'italic', 'em']]) {
+            if (span.style.getPropertyValue(property) !== value) continue;
+            const mark = clone.ownerDocument.createElement(tag);
+            mark.append(...span.childNodes);
+            span.append(mark);
+          }
+        }
+      }
       // Keep body children so downstream Markdown sees original semantic blocks.
       if (topBodies.includes(node) && !node.matches('[data-block="true"]')) content.append(...clone.childNodes);
       else content.append(clone);
     }
-    return { ...meta, publishedAt: meta.publishedAt || container.querySelector('time[datetime]')?.getAttribute('datetime') || null,
+    return { ...meta, publishedAt: meta.publishedAt || [...container.querySelectorAll('time[datetime]')].find(inContext)?.getAttribute('datetime') || null,
       title: titleNode ? text(titleNode) : 'X Article', content };
   }
   function extractThread(document, selectedPost, pageUrl) {

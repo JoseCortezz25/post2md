@@ -47,31 +47,31 @@
     const button = document.createElement('button');
     button.type = 'button';
     button.setAttribute('data-post2md', kind);
-    button.textContent = kind === 'thread' ? 'Download loaded thread' : 'Download Markdown';
+    button.textContent = 'Download Markdown';
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
       try {
         const tweet = button.closest(TWEET);
-        if (kind === 'thread') {
-          const records = api.extractThread(document, tweet, location.href);
-          if (records.length < 2) {
-            feedback('Only the selected post is reliably connected in loaded content. Use Download Markdown, or load more replies and retry.');
-            return;
-          }
+        if (kind === 'article' && articleRoutes.get(host) !== location.href) throw new Error('The page changed. Reopen the full article.');
+        const article = api.extractArticle(kind === 'article' ? host : tweet, location.href);
+        if (article) {
+          download({ ...article, content: source(article) });
+          return;
+        }
+        const records = tweet ? api.extractThread(document, tweet, location.href) : [];
+        if (records.length > 1) {
           const content = document.createElement('div');
           const note = document.createElement('p');
           note.textContent = 'Loaded subset only: reliably connected posts currently present in the page; not necessarily the whole thread.';
           content.append(note);
           for (const record of records) content.append(source(record));
           download({ title: records[0].title, url: records[0].url, content });
-        } else {
-          if (kind === 'article' && articleRoutes.get(host) !== location.href) throw new Error('The page changed. Reopen the full article.');
-          const root = kind === 'article' ? host : tweet;
-          const record = api.extractArticle(root, location.href) || (tweet && api.extractPost(tweet, location.href));
-          if (!record) throw new Error('No supported loaded content found. Open the full post or article and retry.');
-          download({ ...record, content: source(record) });
+          return;
         }
+        const record = tweet && api.extractPost(tweet, location.href);
+        if (!record) throw new Error('No supported loaded content found. Open the full post or article and retry.');
+        download({ ...record, content: source(record) });
       } catch (error) {
         feedback(`Could not request Markdown download: ${error.message} You can retry.`);
       }
@@ -79,19 +79,10 @@
     host.append(button);
   }
   const articleRoutes = new Map();
-  const threadControls = new Set();
   const READ = '[data-testid="twitterArticleReadView"]';
   const BODY = '[data-testid="twitterArticleRichTextView"], [data-testid="articleBody"], [class*="longform-body"], [class*="longform-content"], [class*="longform-richText"]';
-  const EXCLUDED = 'a, button, [role="link"], [data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="card.wrapper"], [data-testid="placementTracking"]';
-  function selected(tweet) {
-    if (!tweet) return false;
-    return [...tweet.querySelectorAll('time')].some(time => {
-      if (time.closest(TWEET) !== tweet || time.closest(EXCLUDED.replace('a, ', ''))) return false;
-      const href = time.closest('a[href]')?.getAttribute('href');
-      try { return href && new URL(href, location.href).pathname === new URL(location.href).pathname; }
-      catch { return false; }
-    });
-  }
+  // Never inject controls into interactive hosts or quoted content.
+  const EXCLUDED = 'a, button, [role="link"]:not(a), [data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="card.wrapper"], [data-testid="placementTracking"]';
   function discover(root) {
     if (!root?.querySelectorAll) return;
     const tweets = [...root.querySelectorAll(TWEET)];
@@ -103,10 +94,6 @@
       const group = [...tweet.querySelectorAll('[role="group"]')].find(node => node.closest(TWEET) === tweet && !node.closest(EXCLUDED));
       if (!group) continue;
       addButton(group);
-      if (selected(tweet)) {
-        addButton(group, 'thread');
-        threadControls.add(group.querySelector('[data-post2md="thread"]'));
-      }
     }
     const candidates = [...root.querySelectorAll(`${READ}, ${BODY}`)];
     if (root.matches?.(`${READ}, ${BODY}`)) candidates.unshift(root);
@@ -119,12 +106,6 @@
     }
   }
   function prune() {
-    for (const button of threadControls) {
-      if (!button.isConnected || !selected(button.closest(TWEET))) {
-        button.remove();
-        threadControls.delete(button);
-      }
-    }
     for (const [host, route] of articleRoutes) {
       if (!host.isConnected || route !== location.href) {
         host.querySelector('[data-post2md="article"]')?.remove();

@@ -12,12 +12,12 @@ The original project proposal is preserved in [docs/VISION.md](docs/VISION.md). 
 4. Choose **Load unpacked** and select the repository's **`extension` directory** (not the repository root).
 5. Reload any open X tabs. A **Download Markdown** button appears in supported posts' action areas and opened standalone Articles.
 
-After updating the files, reload the extension on `chrome://extensions`, then reload X again.
+After updating the files, reload the extension on `chrome://extensions`, then reload X again. This is also required when updating to the opened-Article extraction fix; an already injected button still uses the old scripts until the X tab reloads.
 
 ## Use
 
-- **Download Markdown** exports the current post, or its full opened Article when available. Standalone Articles have a button in the read view or rich body wrapper.
-- On the selected status detail, **Download loaded thread** exports multiple same-author posts only when explicit reply ancestry connects them. Otherwise it reports that only the selected post is reliably connected; use its individual download button or load more replies and retry.
+- There is one **Download Markdown** button per supported post or standalone Article. No separate thread button or mode selection is needed.
+- On click, the extension automatically prioritizes the full opened **Article**, then a reliably connected **loaded thread** on the selected status detail, otherwise the **individual post**. Threads include same-author posts only when explicit reply ancestry connects them; ambiguous or single-post cases fall back to the individual post. Load more connected replies and click the same button again to include them.
 - Downloads use the title as a sanitized `.md` filename. The local status message means a browser download was **requested**, not proof that a file was saved. Check Chrome's downloads and any save prompt.
 
 ## Output and limits
@@ -44,7 +44,7 @@ Honest limits:
 
 - Only content currently present in the DOM is exported. This does not fetch or scroll to load a whole thread.
 - Articles must be **opened in full**, not just shown as preview cards.
-- Strict ancestry can yield only the selected post. Some layouts may have no usable thread button or action area.
+- Strict ancestry can yield only the selected post. Some layouts may have no usable download action area.
 - Images, video and other media are **remote links**, not binary downloads or offline copies. Expiring/protected media URLs may stop working.
 - Authentication, private accounts, restricted or deleted content are not bypassed.
 - X selectors are fragile and may change. The fixtures and tests are not live authenticated X verification; signed-in browser compatibility remains unverified.
@@ -66,5 +66,7 @@ npm run check
 ```
 
 Tests use Node's test runner and linkedom. The content-script integration suite loads the real classic scripts in a VM with simulated X location and browser download/timer boundaries. It interacts with DOM buttons and checks files, metadata, retry feedback and dynamic/recycled content.
+
+`tests/fixtures/opened-article.html` contains reduced user-supplied structural fragments, not the full capture or a live-X snapshot. Its regression covers native timestamp anchors, a nested Article title, linked cover/media and a DraftJS body with embedded posts. Embedded posts and preview cards must not supply the owning Article's identity, title or publication time.
 
 For a manual local demo, serve this repository root with any static HTTP server and open `http://localhost:<port>/tests/fixtures/demo.html`. The fixture loads scripts directly from `../../extension/`; no build is needed. Its demo-only adapter supplies an X `pageURL` to extractors while `history.replaceState` keeps the real origin localhost. It changes the path to `/alice/status/10`; revisit the original fixture URL to reload. This does not expand the production host allowlist. Remote media URLs in the fixture are illustrative, not bundled assets. This demo is not evidence of authenticated live X behavior.
