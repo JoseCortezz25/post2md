@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>post2md local demo</title>
+  <link rel="stylesheet" href="../../extension/content.css">
+</head>
+<body>
+  <h1>Local DOM demo (not live X verification)</h1>
+  <p>Download Markdown exports the opened article; Download loaded thread exports only the two connected posts.</p>
+  <main data-testid="primaryColumn">
+    <article data-testid="tweet">
+      <a href="https://x.com/alice/status/10"><time datetime="2026-01-01T12:00:00Z">January 1</time></a>
+      <p data-testid="tweetText">A practical guide to portable notes</p>
+      <section data-testid="twitterArticleReadView">
+        <h1>Portable notes</h1>
+        <div data-testid="articleBody">
+          <h2>Keep the structure</h2>
+          <p>Preserve <strong>important ideas</strong>, <em>emphasis</em> and <a href="https://example.com/notes">references</a>.</p>
+          <ul><li>Headings and paragraphs</li><li>Remote media links</li></ul>
+          <blockquote>Keep a local copy of what you can actually read.</blockquote>
+          <pre><code class="language-js">const portable = true;</code></pre>
+          <img src="https://example.com/diagram.png" alt="Remote diagram (illustrative URL)">
+          <video controls poster="https://example.com/poster.jpg"><source src="https://example.com/video.mp4" type="video/mp4"></video>
+        </div>
+      </section>
+      <div role="group" aria-label="Post actions"><button type="button">Reply</button></div>
+    </article>
+    <article data-testid="tweet" data-in-reply-to-status-id="10">
+      <a href="https://x.com/alice/status/11"><time datetime="2026-01-01T12:01:00Z">January 1</time></a>
+      <p data-testid="tweetText">A reliably connected second post.</p>
+      <div role="group" aria-label="Post actions"><button type="button">Reply</button></div>
+    </article>
+    <article data-testid="tweet">
+      <a href="https://x.com/alice/status/99"><time datetime="2026-01-01T13:00:00Z">January 1</time></a>
+      <p data-testid="tweetText">Unrelated: this must not enter the thread export.</p>
+      <div role="group" aria-label="Post actions"><button type="button">Reply</button></div>
+    </article>
+  </main>
+  <script src="../../extension/markdown.js"></script>
+  <script src="../../extension/extract.js"></script>
+  <script>
+    // Demo-only adapter: keep the real browser origin local, supply X pageURL to extractors.
+    // Production content-script matches and URL validation remain unchanged.
+    if (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+      history.replaceState(null, '', '/alice/status/10');
+      for (const name of ['extractPost', 'extractArticle', 'extractThread']) {
+        const extract = Post2md[name];
+        Post2md[name] = (...args) => {
+          args[args.length - 1] = 'https://x.com' + location.pathname;
+          return extract(...args);
+        };
+      }
+    }
+  </script>
+  <script src="../../extension/content.js"></script>
+</body>
+</html>
