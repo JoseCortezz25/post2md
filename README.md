@@ -1,98 +1,70 @@
 # post2md
 
-> A Chrome extension that adds a **Download as Markdown** button to any post on X (formerly Twitter) — including full threads, media references and author metadata.
+A local-only Chrome extension for downloading loaded X posts, opened Articles and reliably connected loaded threads as Markdown.
 
-X is a terrible place to keep knowledge: posts disappear, threads collapse, and copy-paste loses structure, links and authorship. `post2md` turns a post (or an entire thread) into a clean, portable `.md` file you can drop into Obsidian, Notion, a repo, or your own notes.
+The original project proposal is preserved in [docs/VISION.md](docs/VISION.md). It describes longer-term goals, not a list of already implemented capabilities; the installation instructions and limits below describe this version.
 
-## The problem
+## Install (no npm or build required)
 
-There is no native way to export a single post from X. Bookmarking inside the platform is a one-way trap: content can be deleted, accounts can be locked, and the reading experience is hostile to long-form threads. Existing tools either require a paid API, scrape your whole account, or produce unreadable HTML dumps.
+1. Download or clone this repository.
+2. Open `chrome://extensions` in Chrome.
+3. Enable **Developer mode**.
+4. Choose **Load unpacked** and select the repository's **`extension` directory** (not the repository root).
+5. Reload any open X tabs. A **Download Markdown** button appears in supported posts' action areas and opened standalone Articles.
 
-## The solution
+After updating the files, reload the extension on `chrome://extensions`, then reload X again.
 
-One button. Injected next to the native action bar of every post, it captures the post straight from the DOM you are already looking at — no API keys, no account access, no backend.
+## Use
 
-## Features
+- **Download Markdown** exports the current post, or its full opened Article when available. Standalone Articles have a button in the read view or rich body wrapper.
+- On the selected status detail, **Download loaded thread** exports multiple same-author posts only when explicit reply ancestry connects them. Otherwise it reports that only the selected post is reliably connected; use its individual download button or load more replies and retry.
+- Downloads use the title as a sanitized `.md` filename. The local status message means a browser download was **requested**, not proof that a file was saved. Check Chrome's downloads and any save prompt.
 
-- **One-click export** — the button lives in each post's action bar, right where you would expect it.
-- **Full thread support** — exporting any post of a thread walks the conversation and produces a single document with every tweet in order, not a folder of fragments.
-- **Faithful content** — post text is kept as-is, with line breaks, lists, emoji and inline links preserved.
-- **Author metadata** — display name, handle, profile URL and post timestamp, formatted as front matter.
-- **Media handling** — images, videos and GIFs are referenced with their source URLs and alt text when available; direct download of binaries is optional.
-- **Quoted posts and link previews** — embedded quotes become blockquotes, and external links are kept intact.
-- **Front matter** — YAML header with source URL, author, date, language and thread flag, so notes stay queryable in Obsidian and similar tools.
-- **Local-only by default** — everything runs in the content script; no data leaves the browser.
+## Output and limits
 
-## Example output
+Markdown preserves supported headings, paragraphs, links, emphasis, images, lists, quotes, code, tables and available media references in source order. Frontmatter contains the generation time (ISO UTC), title and source URL:
 
 ```markdown
 ---
-source: https://x.com/user/status/1234567890
-author: Jane Doe (@janedoe)
-published: 2026-10-22T14:03:00Z
-thread: true
-tweets: 3
+generated_at: "2026-01-01T12:00:00.000Z"
+title: "Portable notes"
+url: "https://x.com/alice/status/10"
 ---
 
-# Jane Doe (@janedoe) — 2026-10-22
+# Portable notes
 
-Long posts deserve better than a screenshot. Here is the whole idea:
+[Source](https://x.com/alice/status/10) | Author: @alice | Published: 2026-01-01T11:00:00Z
 
-1. Capture the post you are reading
-2. Keep the thread order
-3. Ship it to your notes
-
-> **Quoted post** — @someoneelse: the original claim being discussed
-> https://x.com/someoneelse/status/0987654321
-
-![Image: chart of weekly exports](https://pbs.twimg.com/media/example.jpg)
+Post or Article content goes here.
 ```
 
-## How it works
+Source author and publication time appear in the body when available; publication time does not replace `generated_at`. Thread documents use the first connected record's title and URL as root metadata, mark themselves as a **loaded subset**, and include each record's source URL, author and available publication time. Markdown punctuation may be escaped in the actual output.
 
-1. A content script matches `x.com` and `twitter.com` and observes the timeline for post containers.
-2. Each post gets a small, unobtrusive button appended to its action bar.
-3. On click, the script extracts the tweet's structured data from the rendered DOM (text nodes, media, quoted post, author block).
-4. If the post belongs to a thread, the script follows the conversation and collects the remaining posts in chronological order.
-5. The result is serialized to Markdown, wrapped in front matter, and handed to `chrome.downloads` as a `.md` file named after the author, date and post ID.
+Honest limits:
 
-No server, no OAuth, no scraping backend. The extension reads only what is already rendered on screen.
+- Only content currently present in the DOM is exported. This does not fetch or scroll to load a whole thread.
+- Articles must be **opened in full**, not just shown as preview cards.
+- Strict ancestry can yield only the selected post. Some layouts may have no usable thread button or action area.
+- Images, video and other media are **remote links**, not binary downloads or offline copies. Expiring/protected media URLs may stop working.
+- Authentication, private accounts, restricted or deleted content are not bypassed.
+- X selectors are fragile and may change. The fixtures and tests are not live authenticated X verification; signed-in browser compatibility remains unverified.
 
-## Project status
+## Privacy and architecture
 
-Idea and specification stage. This repository documents the intended behaviour and the design decisions before implementation starts.
+No secrets, API keys, OAuth, third-party extraction servers or API calls. No privileged Chrome permissions or extra `host_permissions`. Static Manifest V3 content scripts match HTTPS X/Twitter domains (including www/mobile variants), running in Chrome's default isolated world. Unsupported host redirects may need a tab reload.
 
-## Roadmap
+Classic scripts load in order: `markdown.js`, `extract.js`, `content.js`, plus scoped `content.css`. There is no service worker, popup or bundler. Buttons use the live DOM on click, so recycled feed nodes do not retain a captured post. A coalesced observer discovers candidates without eagerly converting their content. Downloads use a UTF-8 Markdown Blob and a temporary anchor, then release the object URL after a delay—no `chrome.downloads` permission. The extension itself makes no network requests; opening exported remote media links is separate.
 
-- [ ] Manifest V3 scaffold with a single content script
-- [ ] Post detection that survives X's frequent DOM churn
-- [ ] Action-bar button injection with light/dark theming
-- [ ] Markdown serializer for single posts
-- [ ] Thread traversal and ordering
-- [ ] Media handling (URL references, optional binary download)
-- [ ] YAML front matter and filename templating
-- [ ] Options page: toggles for front matter, media download and thread depth
-- [ ] Packaged build and Chrome Web Store submission
+## Development
 
-## Non-goals
+Node.js with npm is required only for development:
 
-- Bulk export of an account's timeline or bookmarks.
-- Authenticating with the X API or storing credentials.
-- Scraping private accounts or content the user cannot already see.
+```sh
+npm ci
+npm test
+npm run check
+```
 
-## Tech notes
+Tests use Node's test runner and linkedom. The content-script integration suite loads the real classic scripts in a VM with simulated X location and browser download/timer boundaries. It interacts with DOM buttons and checks files, metadata, retry feedback and dynamic/recycled content.
 
-- Manifest V3, vanilla TypeScript, no build-heavy framework.
-- Content script only: the `downloads` permission plus host access to `x.com`.
-- Markdown generation lives in a pure function so it can be unit-tested without a browser.
-- DOM selectors are isolated in a single adapter module, because X changes them constantly.
-
-## Naming
-
-`post` because X calls them posts now, `md` because Markdown is the only output that matters.
-
----
-
-## Resumen en español
-
-Extensión de Chrome que agrega un botón **Descargar como Markdown** en cada post de X. Al hacer clic, guarda el contenido completo como un archivo `.md`: texto con su formato, autor, fecha, imágenes y enlaces, y si el post pertenece a un hilo, todos sus tuits en orden. Todo ocurre localmente en el navegador, sin backend ni claves de API, para que puedas llevarte lo que lees a Obsidian, Notion o tu propio repositorio.
+For a manual local demo, serve this repository root with any static HTTP server and open `http://localhost:<port>/tests/fixtures/demo.html`. The fixture loads scripts directly from `../../extension/`; no build is needed. Its demo-only adapter supplies an X `pageURL` to extractors while `history.replaceState` keeps the real origin localhost. It changes the path to `/alice/status/10`; revisit the original fixture URL to reload. This does not expand the production host allowlist. Remote media URLs in the fixture are illustrative, not bundled assets. This demo is not evidence of authenticated live X behavior.
